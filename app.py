@@ -165,7 +165,7 @@ def auth():
         return jsonify({"error": "Fichier credentials.json introuvable. Voir README.md"}), 400
     flow = Flow.from_client_secrets_file(CLIENT_SECRETS_FILE, scopes=SCOPES)
     # Use BASE_URL so the redirect works on a real domain (not localhost)
-    flow.redirect_uri = f"{BASE_URL}/oauth2callback"
+    flow.redirect_uri = f"{BASE_URL}/callback"
     auth_url, state = flow.authorization_url(access_type='offline', include_granted_scopes='true')
     session['state'] = state
     return redirect(auth_url)
@@ -173,19 +173,20 @@ def auth():
 
 @app.route('/oauth2callback')
 def oauth2callback():
-    flow = Flow.from_client_secrets_file(
-        CLIENT_SECRETS_FILE, scopes=SCOPES, state=session['state']
-    )
-    flow.redirect_uri = f"{BASE_URL}/oauth2callback"
-    # Render (and most reverse proxies) forward requests internally as HTTP
-    # even though the public URL is HTTPS — force https so oauthlib doesn't reject it
-    authorization_response = request.url.replace('http://', 'https://')
-    flow.fetch_token(authorization_response=authorization_response)
-    creds = flow.credentials
-    with open(TOKEN_FILE, 'wb') as f:
-        pickle.dump(creds, f)
-    return redirect(url_for('index'))
-
+    try:
+        flow = Flow.from_client_secrets_file(
+            CLIENT_SECRETS_FILE, scopes=SCOPES, state=session['state']
+        )
+        flow.redirect_uri = f"{BASE_URL}/oauth2callback"
+        authorization_response = request.url.replace('http://', 'https://')
+        flow.fetch_token(authorization_response=authorization_response)
+        creds = flow.credentials
+        with open(TOKEN_FILE, 'wb') as f:
+            pickle.dump(creds, f)
+        return redirect(url_for('index'))
+    except Exception as e:
+        import traceback
+        return f"<pre>ERREUR:\n{traceback.format_exc()}</pre>", 500
 
 @app.route('/api/emails')
 def api_emails():
