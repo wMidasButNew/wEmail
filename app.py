@@ -177,7 +177,10 @@ def oauth2callback():
         CLIENT_SECRETS_FILE, scopes=SCOPES, state=session['state']
     )
     flow.redirect_uri = f"{BASE_URL}/oauth2callback"
-    flow.fetch_token(authorization_response=request.url)
+    # Render (and most reverse proxies) forward requests internally as HTTP
+    # even though the public URL is HTTPS — force https so oauthlib doesn't reject it
+    authorization_response = request.url.replace('http://', 'https://')
+    flow.fetch_token(authorization_response=authorization_response)
     creds = flow.credentials
     with open(TOKEN_FILE, 'wb') as f:
         pickle.dump(creds, f)
