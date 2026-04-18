@@ -12,20 +12,15 @@ from datetime import datetime
 
 app = Flask(__name__)
 
-# ── Secret key: read from env var, fallback for local dev only ─────────────────
 app.secret_key = os.environ.get('SECRET_KEY', 'dev-only-insecure-key')
 
-# ── Config ─────────────────────────────────────────────────────────────────────
 SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
 CLIENT_SECRETS_FILE = os.environ.get('GOOGLE_CREDENTIALS_FILE', 'credentials.json')
-TOKEN_FILE = os.environ.get('TOKEN_FILE', 'token.pickle')
-
-# Base URL of your server (no trailing slash), e.g. https://myapp.example.com
+TOKEN_FILE = os.environ.get('TOKEN_FILE', '/tmp/token.pickle')
 BASE_URL = os.environ.get('BASE_URL', 'http://localhost:5000')
 
 
 def get_gemini_url():
-    """Build Gemini URL at request time so missing key only errors on use."""
     key = os.environ.get('GEMINI_API_KEY')
     if not key:
         raise RuntimeError("GEMINI_API_KEY environment variable is not set.")
@@ -34,8 +29,6 @@ def get_gemini_url():
         f'gemini-2.0-flash:generateContent?key={key}'
     )
 
-
-# ── Gmail helpers ──────────────────────────────────────────────────────────────
 
 def get_gmail_service():
     creds = None
@@ -65,8 +58,6 @@ def decode_body(payload):
         body = base64.urlsafe_b64decode(payload['body']['data']).decode('utf-8', errors='ignore')
     return body[:2000]
 
-
-# ── Gemini analysis ────────────────────────────────────────────────────────────
 
 def analyze_email(sender, subject, body, snippet):
     prompt = f"""Analyse cet email et réponds UNIQUEMENT en JSON valide, sans markdown.
@@ -101,8 +92,6 @@ Règles:
     text = text.strip().replace('```json', '').replace('```', '').strip()
     return json.loads(text)
 
-
-# ── Email fetching ─────────────────────────────────────────────────────────────
 
 def fetch_emails(max_results=20, query="newer_than:7d"):
     service = get_gmail_service()
@@ -150,8 +139,6 @@ def fetch_emails(max_results=20, query="newer_than:7d"):
     return emails, None
 
 
-# ── Routes ─────────────────────────────────────────────────────────────────────
-
 @app.route('/')
 def index():
     service = get_gmail_service()
@@ -162,11 +149,14 @@ def index():
 @app.route('/auth')
 def auth():
     if not os.path.exists(CLIENT_SECRETS_FILE):
-        return jsonify({"error": "Fichier credentials.json introuvable. Voir README.md"}), 400
+        return jsonify({"error": "Fichier credentials.json introuvable."}), 400
     flow = Flow.from_client_secrets_file(CLIENT_SECRETS_FILE, scopes=SCOPES)
-    # Use BASE_URL so the redirect works on a real domain (not localhost)
     flow.redirect_uri = f"{BASE_URL}/callback"
-    auth_url, state = flow.authorization_url(access_type='offline', include_granted_scopes='true')
+    auth_url, state = flow.authorization_url(
+        access_type='offline',
+        include_granted_scopes='true',
+        code_challenge_method=None
+    )
     session['state'] = state
     return redirect(auth_url)
 
@@ -179,7 +169,10 @@ def oauth2callback():
         )
         flow.redirect_uri = f"{BASE_URL}/callback"
         authorization_response = request.url.replace('http://', 'https://')
-        flow.fetch_token(authorization_response=authorization_response)
+        flow.fetch_token(
+            authorization_response=authorization_response,
+            code_verifier=None
+        )
         creds = flow.credentials
         with open(TOKEN_FILE, 'wb') as f:
             pickle.dump(creds, f)
@@ -187,6 +180,7 @@ def oauth2callback():
     except Exception as e:
         import traceback
         return f"<pre>ERREUR:\n{traceback.format_exc()}</pre>", 500
+
 
 @app.route('/api/emails')
 def api_emails():
@@ -204,10 +198,7 @@ def api_status():
     return jsonify({"connected": service is not None})
 
 
-# ── Dev entry point (never used in production) ─────────────────────────────────
-
 if __name__ == '__main__':
-    # Allow HTTP for local dev only
     os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
     print("\n✅ Assistant Email démarré → http://localhost:5000\n")
     app.run(debug=True, port=5000)
