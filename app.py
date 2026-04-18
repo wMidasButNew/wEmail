@@ -12,13 +12,13 @@ from datetime import datetime
 
 app = Flask(__name__)
 
-# Utilise la clé secrète de l'environnement Render
+# Clé secrète pour les sessions (doit être définie dans Render)
 app.secret_key = os.environ.get('SECRET_KEY', 'dev-fallback-key-12345')
 
 SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
-# Sur Render, pointe vers le fichier secret si défini, sinon credentials.json local
+
+# Chemins des fichiers (configurés pour Render)
 CLIENT_SECRETS_FILE = os.environ.get('GOOGLE_CREDENTIALS_FILE', 'credentials.json')
-# Utilisation de /tmp pour le stockage éphémère sur Render
 TOKEN_FILE = os.environ.get('TOKEN_FILE', '/tmp/token.pickle')
 BASE_URL = os.environ.get('BASE_URL', 'https://wemail-civu.onrender.com')
 
@@ -72,10 +72,9 @@ def auth():
         return jsonify({"error": f"Fichier {CLIENT_SECRETS_FILE} introuvable sur le serveur."}), 400
     
     flow = Flow.from_client_secrets_file(CLIENT_SECRETS_FILE, scopes=SCOPES)
+    # Cette URL doit être EXACTEMENT la même que dans la console Google Cloud
     flow.redirect_uri = f"{BASE_URL}/callback"
     
-    # FIX: On ne passe PLUS code_challenge_method=None. 
-    # La bibliothèque va générer un challenge S256 automatiquement.
     auth_url, state = flow.authorization_url(
         access_type='offline',
         include_granted_scopes='true'
@@ -88,7 +87,7 @@ def auth():
 def oauth2callback():
     try:
         if 'state' not in session:
-            return "Erreur: Session expirée ou état manquant. Réessayez.", 400
+            return "Erreur : Session expirée ou état manquant. Veuillez recommencer.", 400
 
         flow = Flow.from_client_secrets_file(
             CLIENT_SECRETS_FILE, 
@@ -97,10 +96,10 @@ def oauth2callback():
         )
         flow.redirect_uri = f"{BASE_URL}/callback"
         
-        # On force le HTTPS pour le callback sur Render
+        # Correction pour HTTPS sur les serveurs distants (Render)
         authorization_response = request.url.replace('http://', 'https://')
         
-        # FIX: On laisse fetch_token gérer le code_verifier stocké dans l'instance flow
+        # Récupération du jeton (token)
         flow.fetch_token(authorization_response=authorization_response)
         
         creds = flow.credentials
@@ -110,7 +109,7 @@ def oauth2callback():
         return redirect(url_for('index'))
     except Exception as e:
         import traceback
-        return f"<pre>ERREUR DÉTAILLÉE DU CALLBACK:\n{traceback.format_exc()}</pre>", 500
+        return f"<pre>ERREUR LORS DU CALLBACK :\n{traceback.format_exc()}</pre>", 500
 
 @app.route('/api/status')
 def api_status():
@@ -118,6 +117,6 @@ def api_status():
     return jsonify({"connected": service is not None})
 
 if __name__ == '__main__':
-    # Uniquement pour le dev local
+    # Autorise le HTTP pour le développement local uniquement
     os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
     app.run(debug=True, port=5000)
