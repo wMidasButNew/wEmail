@@ -28,8 +28,9 @@ CLIENT_SECRETS_FILE = os.environ.get('GOOGLE_CREDENTIALS_FILE', '/etc/secrets/cr
 # Sur Render, le système de fichiers est éphémère. On utilise /tmp pour le stockage temporaire du token.
 TOKEN_FILE = os.environ.get('TOKEN_FILE', '/tmp/token.pickle')
 
-# L'URL de base doit être celle de ton application Render (ex: https://wemail-civu.onrender.com)
-BASE_URL = os.environ.get('BASE_URL', 'https://wemail-civu.onrender.com')
+# FIX ULTIME : On s'assure qu'il n'y a AUCUN slash à la fin de l'URL de base
+# Cela évite qu'une erreur dans les variables d'environnement génère "https://wemail-civu.onrender.com//callback"
+BASE_URL = os.environ.get('BASE_URL', 'https://wemail-civu.onrender.com').rstrip('/')
 
 def get_gemini_url():
     key = os.environ.get('GEMINI_API_KEY')
