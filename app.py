@@ -12,11 +12,8 @@ from datetime import datetime
 
 app = Flask(__name__)
 
-# ── Secret key: MUST be set via env var in production ──────────────────────────
-app.secret_key = os.environ.get('SECRET_KEY')
-if not app.secret_key:
-    raise RuntimeError("SECRET_KEY environment variable is not set. "
-                       "Run: export SECRET_KEY=$(python -c \"import secrets; print(secrets.token_hex(32))\")")
+# ── Secret key: read from env var, fallback for local dev only ─────────────────
+app.secret_key = os.environ.get('SECRET_KEY', 'dev-only-insecure-key')
 
 # ── Config ─────────────────────────────────────────────────────────────────────
 SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
@@ -26,14 +23,16 @@ TOKEN_FILE = os.environ.get('TOKEN_FILE', 'token.pickle')
 # Base URL of your server (no trailing slash), e.g. https://myapp.example.com
 BASE_URL = os.environ.get('BASE_URL', 'http://localhost:5000')
 
-GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
-if not GEMINI_API_KEY:
-    raise RuntimeError("GEMINI_API_KEY environment variable is not set.")
 
-GEMINI_URL = (
-    f'https://generativelanguage.googleapis.com/v1beta/models/'
-    f'gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}'
-)
+def get_gemini_url():
+    """Build Gemini URL at request time so missing key only errors on use."""
+    key = os.environ.get('GEMINI_API_KEY')
+    if not key:
+        raise RuntimeError("GEMINI_API_KEY environment variable is not set.")
+    return (
+        f'https://generativelanguage.googleapis.com/v1beta/models/'
+        f'gemini-2.0-flash:generateContent?key={key}'
+    )
 
 
 # ── Gmail helpers ──────────────────────────────────────────────────────────────
@@ -93,7 +92,7 @@ Règles:
 - replies: 2 suggestions courtes et naturelles en français (vide [] si newsletter/automatique)
 - Uniquement le JSON, rien d'autre."""
 
-    resp = http_requests.post(GEMINI_URL, json={
+    resp = http_requests.post(get_gemini_url(), json={
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {"temperature": 0.3, "maxOutputTokens": 400}
     }, timeout=15)
