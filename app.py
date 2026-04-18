@@ -171,13 +171,13 @@ def auth():
     return redirect(auth_url)
 
 
-@app.route('/oauth2callback')
+@app.route('/callback')
 def oauth2callback():
     try:
         flow = Flow.from_client_secrets_file(
             CLIENT_SECRETS_FILE, scopes=SCOPES, state=session['state']
         )
-        flow.redirect_uri = f"{BASE_URL}/oauth2callback"
+        flow.redirect_uri = f"{BASE_URL}/callback"
         authorization_response = request.url.replace('http://', 'https://')
         flow.fetch_token(authorization_response=authorization_response)
         creds = flow.credentials
