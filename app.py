@@ -11,15 +11,32 @@ import pickle
 from datetime import datetime
 
 app = Flask(__name__)
-app.secret_key = os.urandom(24)
 
+# ── Secret key: MUST be set via env var in production ──────────────────────────
+app.secret_key = os.environ.get('SECRET_KEY')
+if not app.secret_key:
+    raise RuntimeError("SECRET_KEY environment variable is not set. "
+                       "Run: export SECRET_KEY=$(python -c \"import secrets; print(secrets.token_hex(32))\")")
+
+# ── Config ─────────────────────────────────────────────────────────────────────
 SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
-CLIENT_SECRETS_FILE = 'credentials.json'
-TOKEN_FILE = 'token.pickle'
+CLIENT_SECRETS_FILE = os.environ.get('GOOGLE_CREDENTIALS_FILE', 'credentials.json')
+TOKEN_FILE = os.environ.get('TOKEN_FILE', 'token.pickle')
+
+# Base URL of your server (no trailing slash), e.g. https://myapp.example.com
+BASE_URL = os.environ.get('BASE_URL', 'http://localhost:5000')
 
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
-GEMINI_URL = f'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}'
+if not GEMINI_API_KEY:
+    raise RuntimeError("GEMINI_API_KEY environment variable is not set.")
 
+GEMINI_URL = (
+    f'https://generativelanguage.googleapis.com/v1beta/models/'
+    f'gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}'
+)
+
+
+# ── Gmail helpers ──────────────────────────────────────────────────────────────
 
 def get_gmail_service():
     creds = None
@@ -50,6 +67,8 @@ def decode_body(payload):
     return body[:2000]
 
 
+# ── Gemini analysis ────────────────────────────────────────────────────────────
+
 def analyze_email(sender, subject, body, snippet):
     prompt = f"""Analyse cet email et réponds UNIQUEMENT en JSON valide, sans markdown.
 
@@ -77,12 +96,14 @@ Règles:
     resp = http_requests.post(GEMINI_URL, json={
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {"temperature": 0.3, "maxOutputTokens": 400}
-    })
+    }, timeout=15)
     resp.raise_for_status()
     text = resp.json()['candidates'][0]['content']['parts'][0]['text']
     text = text.strip().replace('```json', '').replace('```', '').strip()
     return json.loads(text)
 
+
+# ── Email fetching ─────────────────────────────────────────────────────────────
 
 def fetch_emails(max_results=20, query="newer_than:7d"):
     service = get_gmail_service()
@@ -124,11 +145,13 @@ def fetch_emails(max_results=20, query="newer_than:7d"):
                 "summary": analysis.get("summary", snippet[:150]),
                 "replies": analysis.get("replies", [])
             })
-        except Exception as e:
+        except Exception:
             continue
 
     return emails, None
 
+
+# ── Routes ─────────────────────────────────────────────────────────────────────
 
 @app.route('/')
 def index():
@@ -142,7 +165,8 @@ def auth():
     if not os.path.exists(CLIENT_SECRETS_FILE):
         return jsonify({"error": "Fichier credentials.json introuvable. Voir README.md"}), 400
     flow = Flow.from_client_secrets_file(CLIENT_SECRETS_FILE, scopes=SCOPES)
-    flow.redirect_uri = url_for('oauth2callback', _external=True)
+    # Use BASE_URL so the redirect works on a real domain (not localhost)
+    flow.redirect_uri = f"{BASE_URL}/oauth2callback"
     auth_url, state = flow.authorization_url(access_type='offline', include_granted_scopes='true')
     session['state'] = state
     return redirect(auth_url)
@@ -150,8 +174,10 @@ def auth():
 
 @app.route('/oauth2callback')
 def oauth2callback():
-    flow = Flow.from_client_secrets_file(CLIENT_SECRETS_FILE, scopes=SCOPES, state=session['state'])
-    flow.redirect_uri = url_for('oauth2callback', _external=True)
+    flow = Flow.from_client_secrets_file(
+        CLIENT_SECRETS_FILE, scopes=SCOPES, state=session['state']
+    )
+    flow.redirect_uri = f"{BASE_URL}/oauth2callback"
     flow.fetch_token(authorization_response=request.url)
     creds = flow.credentials
     with open(TOKEN_FILE, 'wb') as f:
@@ -175,7 +201,10 @@ def api_status():
     return jsonify({"connected": service is not None})
 
 
+# ── Dev entry point (never used in production) ─────────────────────────────────
+
 if __name__ == '__main__':
+    # Allow HTTP for local dev only
     os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
     print("\n✅ Assistant Email démarré → http://localhost:5000\n")
     app.run(debug=True, port=5000)
