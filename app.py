@@ -192,12 +192,16 @@ def oauth2callback():
 
 @app.route('/api/emails')
 def api_emails():
-    query = request.args.get('q', 'newer_than:7d')
-    limit = int(request.args.get('limit', 20))
-    emails, error = fetch_emails(max_results=limit, query=query)
-    if error:
-        return jsonify({"error": error}), 401
-    return jsonify({"emails": emails, "total": len(emails)})
+    try:
+        query = request.args.get('q', 'newer_than:7d')
+        limit = int(request.args.get('limit', 20))
+        emails, error = fetch_emails(max_results=limit, query=query)
+        if error:
+            return jsonify({"error": error}), 401
+        return jsonify({"emails": emails, "total": len(emails)})
+    except Exception as e:
+        import traceback
+        return jsonify({"error": traceback.format_exc()}), 500
 
 
 @app.route('/api/status')
